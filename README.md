@@ -1,5 +1,7 @@
 # Block Breaker
 
+遊べるURLはこちらです：https://suzunayui.com/block/
+
 シンプルなHTML5キャンバスベースのブロック崩しゲームです。
 
 ## 特徴
