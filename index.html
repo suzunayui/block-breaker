@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Block Breaker</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            touch-action: none;
+        }
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            max-width: 400px;
+            max-height: 600px;
+            background: #000;
+        }
+        #gameCanvas {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            position: relative;
+        }
+        #backgroundImage {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+        }
+        #gameInfo {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 16px;
+            z-index: 3;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            text-align: center;
+            font-size: 24px;
+            z-index: 4;
+            display: none;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <img id="backgroundImage" src="./image.png" alt="Hidden Image">
+        <canvas id="gameCanvas"></canvas>
+        <div id="gameInfo">
+            <div>Score: <span id="score">0</span></div>
+            <div>Blocks: <span id="remaining">0</span></div>
+        </div>
+        <div id="gameOver">
+            <div id="gameOverText">Game Over</div>
+            <button onclick="startGame()">Play Again</button>
+            <div id="clearOptions" style="display: none;">
+                <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+                <button onclick="selectImage()">背景画像を選択する！</button>
+                <div style="font-size: 12px; color: #ccc; margin-top: 10px;">
+                    （画像はサーバー側には保存されません）
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const backgroundImage = document.getElementById('backgroundImage');
+        const scoreElement = document.getElementById('score');
+        const remainingElement = document.getElementById('remaining');
+        const gameOverElement = document.getElementById('gameOver');
+        const gameOverText = document.getElementById('gameOverText');
+        const clearOptions = document.getElementById('clearOptions');
+        const imageUpload = document.getElementById('imageUpload');
+
+        let gameWidth, gameHeight;
+        let balls = [], paddle, blocks = [];
+        let score = 0;
+        let gameRunning = false;
+        let animationId;
+
+        function resizeCanvas() {
+            const container = document.getElementById('gameContainer');
+            gameWidth = container.clientWidth;
+            gameHeight = container.clientHeight;
+            canvas.width = gameWidth;
+            canvas.height = gameHeight;
+        }
+
+        function initGame() {
+            resizeCanvas();
+            
+            balls = [{
+                x: gameWidth / 2,
+                y: gameHeight - 100,
+                dx: 3,
+                dy: -3,
+                radius: 8,
+                speed: 3
+            }];
+
+            paddle = {
+                x: gameWidth / 2 - 50,
+                y: gameHeight - 30,
+                width: 100,
+                height: 20,
+                speed: 8
+            };
+
+            blocks = [];
+            const blockRows = 8;
+            const blockCols = 8;
+            const blockWidth = gameWidth / blockCols;
+            const blockHeight = 25;
+            const blockPadding = 2;
+
+            for (let row = 0; row < blockRows; row++) {
+                for (let col = 0; col < blockCols; col++) {
+                    blocks.push({
+                        x: col * blockWidth + blockPadding,
+                        y: row * blockHeight + 50 + blockPadding,
+                        width: blockWidth - blockPadding * 2,
+                        height: blockHeight - blockPadding,
+                        destroyed: false,
+                        hue: (row * blockCols + col) * 360 / (blockRows * blockCols)
+                    });
+                }
+            }
+
+            score = 0;
+            updateUI();
+            backgroundImage.style.opacity = '0';
+        }
+
+        function updateUI() {
+            scoreElement.textContent = score;
+            const remaining = blocks.filter(block => !block.destroyed).length;
+            remainingElement.textContent = remaining;
+            
+            const totalBlocks = blocks.length;
+            const destroyedBlocks = totalBlocks - remaining;
+            const revealPercentage = destroyedBlocks / totalBlocks;
+            backgroundImage.style.opacity = revealPercentage;
+        }
+
+        function drawBalls() {
+            balls.forEach(ball => {
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+                ctx.closePath();
+            });
+        }
+
+        function drawPaddle() {
+            ctx.beginPath();
+            ctx.rect(paddle.x, paddle.y, paddle.width, paddle.height);
+            ctx.fillStyle = '#0095DD';
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawBlocks() {
+            blocks.forEach(block => {
+                if (!block.destroyed) {
+                    ctx.beginPath();
+                    ctx.rect(block.x, block.y, block.width, block.height);
+                    ctx.fillStyle = `hsl(${block.hue}, 70%, 50%)`;
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.closePath();
+                }
+            });
+        }
+
+        function moveBalls() {
+            balls.forEach((ball, index) => {
+                ball.x += ball.dx;
+                ball.y += ball.dy;
+
+                if (ball.x + ball.radius > gameWidth || ball.x - ball.radius < 0) {
+                    ball.dx = -ball.dx;
+                }
+                if (ball.y - ball.radius < 0) {
+                    ball.dy = -ball.dy;
+                }
+
+                if (ball.y + ball.radius > paddle.y &&
+                    ball.x > paddle.x &&
+                    ball.x < paddle.x + paddle.width &&
+                    ball.dy > 0) {
+                    
+                    const hitPos = (ball.x - paddle.x) / paddle.width;
+                    const angle = (hitPos - 0.5) * Math.PI * 0.5;
+                    const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+                    ball.dx = speed * Math.sin(angle);
+                    ball.dy = -speed * Math.cos(angle);
+                }
+
+                if (ball.y + ball.radius > gameHeight) {
+                    balls.splice(index, 1);
+                }
+            });
+
+            if (balls.length === 0) {
+                endGame(false);
+            }
+        }
+
+        function checkBlockCollision() {
+            balls.forEach(ball => {
+                blocks.forEach(block => {
+                    if (!block.destroyed &&
+                        ball.x + ball.radius > block.x &&
+                        ball.x - ball.radius < block.x + block.width &&
+                        ball.y + ball.radius > block.y &&
+                        ball.y - ball.radius < block.y + block.height) {
+                        
+                        ball.dy = -ball.dy;
+                        block.destroyed = true;
+                        score += 10;
+                        
+                        // Power-ups with random chance
+                        const random = Math.random();
+                        if (random < 0.1) { // 10% chance for extra ball
+                            addExtraBall();
+                        } else if (random < 0.15) { // 5% chance for paddle expansion
+                            expandPaddle();
+                        }
+                        
+                        updateUI();
+
+                        if (blocks.every(block => block.destroyed)) {
+                            endGame(true);
+                        }
+                    }
+                });
+            });
+        }
+
+        function addExtraBall() {
+            const newBall = {
+                x: gameWidth / 2,
+                y: gameHeight / 2,
+                dx: (Math.random() - 0.5) * 6,
+                dy: -3,
+                radius: 8,
+                speed: 3
+            };
+            balls.push(newBall);
+        }
+
+        function expandPaddle() {
+            paddle.width = Math.min(paddle.width + 20, gameWidth * 0.4);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, gameWidth, gameHeight);
+            drawBlocks();
+            drawBalls();
+            drawPaddle();
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+            
+            moveBalls();
+            checkBlockCollision();
+            draw();
+            
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            gameRunning = true;
+            gameOverElement.style.display = 'none';
+            clearOptions.style.display = 'none';
+            initGame();
+            gameLoop();
+        }
+        
+        function selectImage() {
+            imageUpload.click();
+        }
+        
+        imageUpload.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    backgroundImage.src = e.target.result;
+                    backgroundImage.style.opacity = '0';
+                    // Auto-start game after image selection
+                    setTimeout(() => {
+                        startGame();
+                    }, 100);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function endGame(won) {
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            gameOverText.textContent = won ? 'Clear!' : 'Game Over';
+            gameOverElement.style.display = 'block';
+            
+            if (won) {
+                clearOptions.style.display = 'block';
+            } else {
+                clearOptions.style.display = 'none';
+            }
+        }
+
+        let touchStartX = 0;
+        let paddleStartX = 0;
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            touchStartX = e.touches[0].clientX;
+            paddleStartX = paddle.x;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!gameRunning) return;
+            
+            const touchX = e.touches[0].clientX;
+            const deltaX = touchX - touchStartX;
+            paddle.x = paddleStartX + deltaX;
+            
+            if (paddle.x < 0) paddle.x = 0;
+            if (paddle.x + paddle.width > gameWidth) paddle.x = gameWidth - paddle.width;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!gameRunning) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            paddle.x = mouseX - paddle.width / 2;
+            
+            if (paddle.x < 0) paddle.x = 0;
+            if (paddle.x + paddle.width > gameWidth) paddle.x = gameWidth - paddle.width;
+        });
+
+        window.addEventListener('resize', () => {
+            if (gameRunning) {
+                resizeCanvas();
+                paddle.y = gameHeight - 30;
+            }
+        });
+
+        backgroundImage.onerror = () => {
+            console.log('image.png not found, using gradient background');
+            backgroundImage.style.background = 'linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57)';
+        };
+
+        initGame();
+        draw();
+        
+        // Auto-start game on page load
+        setTimeout(() => {
+            startGame();
+        }, 500);
+    </script>
+</body>
+</html>
